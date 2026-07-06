@@ -71,9 +71,11 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   app.get("/api/health", (_req, res) => {
+    const storageMode = ENV.mongoUrl ? "mongo-foundation" : (ENV.databaseUrl ? "mysql-legacy" : "unconfigured");
     res.json({
       ok: true,
       service: "corehr-web-backend",
+      storageMode,
       database: ENV.databaseUrl ? "configured" : "missing",
       mongo: ENV.mongoUrl ? "configured" : "disabled",
     });

@@ -33,7 +33,7 @@ import {
   updateEmployeeDocument,
   updateEmployeeExit,
   updateEmployeeTransfer,
-} from "../db";
+} from "../mongoDb";
 
 // ─── Employee CRUD ─────────────────────────────────────────────────────────────
 

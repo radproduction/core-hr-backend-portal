@@ -36,7 +36,7 @@ import {
   getRosterForDateRange,
   createShift,
 } from "../attendanceDb";
-import { createAuditLog } from "../db";
+import { createAuditLog } from "../mongoDb";
 import { notifyOwner } from "../_core/notification";
 import { runAndPersistAnomalyDetection, runAndPersistAbsenteeismPredictions } from "../ai/attendanceAI";
 

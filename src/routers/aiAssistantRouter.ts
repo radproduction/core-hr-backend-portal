@@ -23,8 +23,15 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
 import type { Message, Tool } from "../_core/llm";
-import { getEffectivePermissions, getUserProfileByUserId } from "../accessDb";
-import { getEmployees, getEmployeeById, getDepartments } from "../db";
+import {
+  getDepartments,
+  getEffectivePermissions,
+  getEmployeeById,
+  getEmployees,
+  getPendingApprovalsCount,
+  getUserProfileByUserId,
+  getWorkflowInstances,
+} from "../mongoDb";
 import {
   listLeaveTypes,
   listLeaveBalances,
@@ -36,7 +43,6 @@ import {
   listAttendanceRecords,
   getTodayAttendanceSummary,
 } from "../attendanceDb";
-import { getWorkflowInstances, getPendingApprovalsCount } from "../db";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

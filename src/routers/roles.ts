@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createHcmRole, getHcmRoles, getRolePermissions, upsertRolePermission } from "../db";
+import { createHcmRole, getHcmRoles, getRolePermissions, upsertRolePermission } from "../mongoDb";
 import { HCM_MODULES, PREDEFINED_ROLES } from "../rbac";
 import { protectedProcedure, router } from "../_core/trpc";
 

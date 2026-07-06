@@ -1,53 +1,32 @@
-/**
- * selfServiceRouter.ts — Employee Self-Service (ESS) & Manager Self-Service (MSS)
- *
- * ESS procedures (all employees):
- *   ess.myAttendanceSummary  — current month attendance stats
- *   ess.myLeaveBalances      — leave balances for current year
- *   ess.myLeaveRequests      — my leave request history + status
- *   ess.myPayslips           — list of payslips
- *   ess.explainPayslip       — AI narrative explanation of a payslip
- *   ess.myRequests           — all pending/recent workflow requests
- *   ess.newsFeed             — company news feed (pinned first)
- *   ess.policyDocs           — HR policy documents library
- *   ess.createNews           — HR Admin: create a news item
- *   ess.createPolicy         — HR Admin: upload a policy document
- *
- * MSS procedures (managers / dept heads / HR roles):
- *   mss.teamAttendance       — team attendance for today / this week
- *   mss.pendingApprovals     — pending leave requests for my direct reports
- *   mss.approveLeave         — one-touch approve
- *   mss.rejectLeave          — one-touch reject
- *   mss.coverageSummary      — AI coverage analysis for a leave request
- *   mss.teamLeaveCalendar    — team leave calendar (month view data)
- *   mss.teamReports          — team attendance + leave summary stats
- */
-
-import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
-import { getDb } from "../db";
-import {
-  companyNews,
-  hrPolicyDocs,
-  employees,
-  leaveRequests,
-  leaveBalances,
-  leaveTypes,
-  attendanceRecords,
-  payslips,
-  workflowInstances,
-} from "../../drizzle/schema";
-import { and, desc, eq, gte, lte, or, inArray } from "drizzle-orm";
-import { invokeLLM } from "../_core/llm";
+import { z } from "zod";
 import { analyzeTeamCoverage } from "../ai/leaveAI";
-import { listLeaveRequests } from "../leaveDb";
+import { invokeLLM } from "../_core/llm";
+import { protectedProcedure, router } from "../_core/trpc";
+import {
+  createCompanyNewsItem,
+  createPolicyDoc,
+  getAttendanceReportData,
+  getCompanyNewsFeed,
+  getEmployees,
+  getPayslipById,
+  getPayslips,
+  getPolicyDocs,
+  getWorkflowInstances,
+  listLeaveBalances,
+  listLeaveRequests,
+  listLeaveTypes,
+  updateLeaveRequest,
+} from "../mongoDb";
 
 const COMPANY_ID = 1;
 
-// ─── ESS ROUTER ──────────────────────────────────────────────────────────────
+async function getDirectReports(companyId: number, managerId: number) {
+  const employees = await getEmployees(companyId);
+  return employees.filter((employee: any) => employee.reportsToId === managerId && employee.status === "active");
+}
+
 const essRouter = router({
-  /** Current month attendance summary for the calling employee */
   myAttendanceSummary: protectedProcedure
     .input(z.object({
       employeeId: z.number(),
@@ -55,57 +34,39 @@ const essRouter = router({
       month: z.number().optional(),
     }))
     .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return { present: 0, absent: 0, late: 0, earlyLeave: 0, totalHours: 0, avgHours: 0, records: [] };
       const now = new Date();
       const year = input.year ?? now.getFullYear();
       const month = input.month ?? (now.getMonth() + 1);
       const start = new Date(year, month - 1, 1);
       const end = new Date(year, month, 0, 23, 59, 59);
-      const records = await db.select().from(attendanceRecords)
-        .where(and(
-          eq(attendanceRecords.employeeId, input.employeeId),
-          gte(attendanceRecords.date, start),
-          lte(attendanceRecords.date, end),
-        ))
-        .orderBy(desc(attendanceRecords.date))
-        .limit(60);
-      const present = records.filter(r => r.status === "present").length;
-      const absent = records.filter(r => r.status === "absent").length;
-      const late = records.filter(r => r.lateMinutes && r.lateMinutes > 0).length;
-      const earlyLeave = records.filter(r => r.earlyLeaveMinutes && r.earlyLeaveMinutes > 0).length;
-      const totalMinutes = records.reduce((sum, r) => sum + (r.workMinutes ?? 0), 0);
-      const totalHours = Math.round(totalMinutes / 60 * 10) / 10;
-      const avgHours = records.length > 0 ? Math.round(totalMinutes / records.length / 60 * 10) / 10 : 0;
+      const records = await getAttendanceReportData(COMPANY_ID, start, end, { employeeId: input.employeeId });
+      const present = records.filter((record: any) => record.status === "present").length;
+      const absent = records.filter((record: any) => record.status === "absent").length;
+      const late = records.filter((record: any) => (record.lateMinutes ?? 0) > 0).length;
+      const earlyLeave = records.filter((record: any) => (record.earlyLeaveMinutes ?? 0) > 0).length;
+      const totalMinutes = records.reduce((sum: number, record: any) => sum + (record.workMinutes ?? 0), 0);
+      const totalHours = Math.round((totalMinutes / 60) * 10) / 10;
+      const avgHours = records.length > 0 ? Math.round((totalMinutes / records.length / 60) * 10) / 10 : 0;
       return { present, absent, late, earlyLeave, totalHours, avgHours, records };
     }),
 
-  /** Leave balances for the calling employee (current year) */
   myLeaveBalances: protectedProcedure
     .input(z.object({ employeeId: z.number(), year: z.number().optional() }))
     .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return [];
       const year = input.year ?? new Date().getFullYear();
-      const balanceRows = await db.select().from(leaveBalances)
-        .where(and(
-          eq(leaveBalances.employeeId, input.employeeId),
-          eq(leaveBalances.year, year),
-        ));
-      if (balanceRows.length === 0) return [];
-      const typeIds = Array.from(new Set(balanceRows.map(b => b.leaveTypeId)));
-      const types = await db.select().from(leaveTypes)
-        .where(and(eq(leaveTypes.companyId, COMPANY_ID), inArray(leaveTypes.id, typeIds)));
-      const typeMap = Object.fromEntries(types.map(t => [t.id, t]));
-      return balanceRows.map(b => ({
-        ...b,
-        leaveTypeName: typeMap[b.leaveTypeId]?.name ?? "Unknown",
-        leaveTypeColor: typeMap[b.leaveTypeId]?.colorCode ?? "#6B7280",
+      const [balances, leaveTypes] = await Promise.all([
+        listLeaveBalances(COMPANY_ID, year, input.employeeId),
+        listLeaveTypes(COMPANY_ID),
+      ]);
+      const typeMap = new Map<number, any>(leaveTypes.map((type: any) => [type.id, type]));
+      return balances.map((balance: any) => ({
+        ...balance,
+        leaveTypeName: typeMap.get(balance.leaveTypeId)?.name ?? "Unknown",
+        leaveTypeColor: typeMap.get(balance.leaveTypeId)?.colorCode ?? "#6B7280",
         leaveTypeIcon: null,
       }));
     }),
 
-  /** My leave requests (recent 20) */
   myLeaveRequests: protectedProcedure
     .input(z.object({
       employeeId: z.number(),
@@ -113,76 +74,62 @@ const essRouter = router({
       limit: z.number().default(20),
     }))
     .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return [];
-      const conditions = [eq(leaveRequests.employeeId, input.employeeId)];
-      if (input.status) conditions.push(eq(leaveRequests.status, input.status));
-      const rows = await db.select().from(leaveRequests)
-        .where(and(...conditions))
-        .orderBy(desc(leaveRequests.createdAt))
-        .limit(input.limit);
-      if (rows.length === 0) return [];
-      const typeIds = Array.from(new Set(rows.map(r => r.leaveTypeId)));
-      const types = await db.select().from(leaveTypes)
-        .where(inArray(leaveTypes.id, typeIds));
-      const typeMap = Object.fromEntries(types.map(t => [t.id, t]));
-      return rows.map(r => ({
-        ...r,
-        leaveTypeName: typeMap[r.leaveTypeId]?.name ?? "Leave",
-        leaveTypeColor: typeMap[r.leaveTypeId]?.colorCode ?? "#6B7280",
+      const [requests, leaveTypes] = await Promise.all([
+        listLeaveRequests(COMPANY_ID, {
+          employeeId: input.employeeId,
+          status: input.status,
+          limit: input.limit,
+        }),
+        listLeaveTypes(COMPANY_ID),
+      ]);
+      const typeMap = new Map<number, any>(leaveTypes.map((type: any) => [type.id, type]));
+      return requests.map((request: any) => ({
+        ...request,
+        leaveTypeName: typeMap.get(request.leaveTypeId)?.name ?? "Leave",
+        leaveTypeColor: typeMap.get(request.leaveTypeId)?.colorCode ?? "#6B7280",
       }));
     }),
 
-  /** My payslips (recent 12) */
   myPayslips: protectedProcedure
     .input(z.object({ employeeId: z.number(), limit: z.number().default(12) }))
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return [];
-      return db.select().from(payslips)
-        .where(eq(payslips.employeeId, input.employeeId))
-        .orderBy(desc(payslips.year), desc(payslips.month))
-        .limit(input.limit);
-    }),
+    .query(({ input }) => getPayslips(input.employeeId, input.limit)),
 
-  /** AI explanation of a payslip — returns a plain-language narrative */
   explainPayslip: protectedProcedure
     .input(z.object({
       payslipId: z.number(),
       employeeId: z.number(),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-      const rows = await db.select().from(payslips)
-        .where(and(eq(payslips.id, input.payslipId), eq(payslips.employeeId, input.employeeId)))
-        .limit(1);
-      if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Payslip not found" });
-      const p = rows[0];
-      const totalDeductions = Number(p.totalDeductions ?? 0);
-      const grossSalary = Number(p.grossSalary ?? 0);
-      const netSalary = Number(p.netSalary ?? 0);
+      const payslip = await getPayslipById(input.payslipId, input.employeeId);
+      if (!payslip) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Payslip not found" });
+      }
+
+      const totalDeductions = Number(payslip.totalDeductions ?? 0);
+      const grossSalary = Number(payslip.grossSalary ?? 0);
+      const netSalary = Number(payslip.netSalary ?? 0);
       const prompt = `You are an HR payroll assistant explaining a payslip to an employee in plain language.
 Payslip details:
-- Pay period: ${p.month}/${p.year}
-- Basic salary: ${p.basicSalary ?? 0}
+- Pay period: ${payslip.month}/${payslip.year}
+- Basic salary: ${payslip.basicSalary ?? 0}
 - Gross salary: ${grossSalary}
-- Total earnings: ${p.totalEarnings ?? 0}
-- Tax amount: ${p.taxAmount ?? 0}
-- PF (employee): ${p.pfEmployee ?? 0}
-- Loan deductions: ${p.loanDeductions ?? 0}
-- Late deductions: ${p.lateDeductions ?? 0}
-- Absent deductions: ${p.absentDeductions ?? 0}
+- Total earnings: ${payslip.totalEarnings ?? 0}
+- Tax amount: ${payslip.taxAmount ?? 0}
+- PF (employee): ${payslip.pfEmployee ?? 0}
+- Loan deductions: ${payslip.loanDeductions ?? 0}
+- Late deductions: ${payslip.lateDeductions ?? 0}
+- Absent deductions: ${payslip.absentDeductions ?? 0}
 - Total deductions: ${totalDeductions}
 - Net salary: ${netSalary}
-- Currency: ${p.currency ?? "AED"}
-- Status: ${p.status}
+- Currency: ${payslip.currency ?? "AED"}
+- Status: ${payslip.status}
 
-Write a friendly, clear 3–4 sentence explanation of this payslip for the employee:
-1. What they earned (gross breakdown)
+Write a friendly, clear 3-4 sentence explanation of this payslip for the employee:
+1. What they earned
 2. What was deducted and why
-3. What they take home (net salary)
+3. What they take home
 Keep it conversational, positive, and under 120 words. Do not include greetings.`;
+
       try {
         const result = await invokeLLM({
           messages: [
@@ -191,73 +138,35 @@ Keep it conversational, positive, and under 120 words. Do not include greetings.
           ],
           maxTokens: 200,
         });
-        const text = (result.choices[0]?.message?.content as string) ?? "";
-        return { explanation: text.trim(), payslip: p };
+        const explanation = (result.choices[0]?.message?.content as string) ?? "";
+        return { explanation: explanation.trim(), payslip };
       } catch {
         return {
-          explanation: `Your net salary for ${p.month}/${p.year} is ${netSalary} ${p.currency ?? "AED"}. Gross salary was ${grossSalary} with total deductions of ${totalDeductions}.`,
-          payslip: p,
+          explanation: `Your net salary for ${payslip.month}/${payslip.year} is ${netSalary} ${payslip.currency ?? "AED"}. Gross salary was ${grossSalary} with total deductions of ${totalDeductions}.`,
+          payslip,
         };
       }
     }),
 
-  /** My recent workflow requests (leave, transfers, etc.) */
   myRequests: protectedProcedure
     .input(z.object({ requestedBy: z.number(), limit: z.number().default(10) }))
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return [];
-      return db.select().from(workflowInstances)
-        .where(eq(workflowInstances.requestedBy, input.requestedBy))
-        .orderBy(desc(workflowInstances.createdAt))
-        .limit(input.limit);
-    }),
+    .query(({ input }) => getWorkflowInstances(COMPANY_ID, { requestedBy: input.requestedBy }).then(items => items.slice(0, input.limit))),
 
-  /** Company news feed (pinned first, then by publishedAt desc) */
   newsFeed: protectedProcedure
     .input(z.object({
       companyId: z.number(),
       limit: z.number().default(10),
       category: z.enum(["announcement", "policy", "event", "achievement", "general"]).optional(),
     }))
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return [];
-      const conditions: ReturnType<typeof eq>[] = [
-        eq(companyNews.companyId, input.companyId),
-        eq(companyNews.isActive, true),
-      ];
-      if (input.category) {
-        conditions.push(eq(companyNews.category, input.category));
-      }
-      return db.select().from(companyNews)
-        .where(and(...conditions))
-        .orderBy(desc(companyNews.isPinned), desc(companyNews.publishedAt))
-        .limit(input.limit);
-    }),
+    .query(({ input }) => getCompanyNewsFeed(input.companyId, { category: input.category, limit: input.limit })),
 
-  /** HR policy documents library */
   policyDocs: protectedProcedure
     .input(z.object({
       companyId: z.number(),
       category: z.enum(["leave", "attendance", "code_of_conduct", "benefits", "payroll", "safety", "general"]).optional(),
     }))
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return [];
-      const conditions: ReturnType<typeof eq>[] = [
-        eq(hrPolicyDocs.companyId, input.companyId),
-        eq(hrPolicyDocs.isActive, true),
-      ];
-      if (input.category) {
-        conditions.push(eq(hrPolicyDocs.category, input.category));
-      }
-      return db.select().from(hrPolicyDocs)
-        .where(and(...conditions))
-        .orderBy(desc(hrPolicyDocs.isMandatory), desc(hrPolicyDocs.createdAt));
-    }),
+    .query(({ input }) => getPolicyDocs(input.companyId, input.category)),
 
-  /** HR Admin: create a company news item */
   createNews: protectedProcedure
     .input(z.object({
       companyId: z.number(),
@@ -271,17 +180,8 @@ Keep it conversational, positive, and under 120 words. Do not include greetings.
       imageUrl: z.string().optional(),
       authorId: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-      const result = await db.insert(companyNews).values({
-        ...input,
-        publishedAt: new Date(),
-      });
-      return { id: (result as { insertId?: number }).insertId ?? 0 };
-    }),
+    .mutation(async ({ input }) => ({ id: await createCompanyNewsItem({ ...input, publishedAt: new Date() }) })),
 
-  /** HR Admin: create a policy document entry */
   createPolicy: protectedProcedure
     .input(z.object({
       companyId: z.number(),
@@ -295,17 +195,10 @@ Keep it conversational, positive, and under 120 words. Do not include greetings.
       uploadedBy: z.number().optional(),
       effectiveDate: z.date().optional(),
     }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-      const result = await db.insert(hrPolicyDocs).values(input);
-      return { id: (result as { insertId?: number }).insertId ?? 0 };
-    }),
+    .mutation(async ({ input }) => ({ id: await createPolicyDoc(input) })),
 });
 
-// ─── MSS ROUTER ──────────────────────────────────────────────────────────────
 const mssRouter = router({
-  /** Team attendance for today */
   teamAttendance: protectedProcedure
     .input(z.object({
       companyId: z.number(),
@@ -313,90 +206,70 @@ const mssRouter = router({
       date: z.date().optional(),
     }))
     .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return { present: 0, absent: 0, onLeave: 0, late: 0, total: 0, records: [] };
-      const directReports = await db.select().from(employees)
-        .where(and(
-          eq(employees.companyId, input.companyId),
-          eq(employees.reportsToId, input.managerId),
-          eq(employees.status, "active"),
-        ));
-      if (directReports.length === 0) return { present: 0, absent: 0, onLeave: 0, late: 0, total: 0, records: [] };
-      const reportIds = directReports.map(e => e.id);
+      const reports = await getDirectReports(input.companyId, input.managerId);
+      if (reports.length === 0) {
+        return { present: 0, absent: 0, onLeave: 0, late: 0, total: 0, records: [] };
+      }
+
       const targetDate = input.date ?? new Date();
       const dayStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
-      const dayEnd = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59);
-      const records = await db.select().from(attendanceRecords)
-        .where(and(
-          inArray(attendanceRecords.employeeId, reportIds),
-          gte(attendanceRecords.date, dayStart),
-          lte(attendanceRecords.date, dayEnd),
-        ));
-      const recordMap = Object.fromEntries(records.map(r => [r.employeeId, r]));
-      const enriched = directReports.map(emp => ({
-        employee: emp,
-        record: recordMap[emp.id] ?? null,
-        status: recordMap[emp.id]?.status ?? "absent",
-        isLate: (recordMap[emp.id]?.lateMinutes ?? 0) > 0,
-        clockIn: recordMap[emp.id]?.clockIn ?? null,
-        clockOut: recordMap[emp.id]?.clockOut ?? null,
-      }));
+      const dayEnd = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59, 999);
+      const attendance = await getAttendanceReportData(input.companyId, dayStart, dayEnd);
+      const reportIds = new Set(reports.map((employee: any) => employee.id));
+      const attendanceMap = new Map<number, any>();
+      for (const record of attendance.filter((item: any) => reportIds.has(item.employeeId))) {
+        attendanceMap.set(record.employeeId, record);
+      }
+
+      const records = reports.map((employee: any) => {
+        const record = attendanceMap.get(employee.id) ?? null;
+        return {
+          employee,
+          record,
+          status: record?.status ?? "absent",
+          isLate: (record?.lateMinutes ?? 0) > 0,
+          clockIn: record?.clockIn ?? null,
+          clockOut: record?.clockOut ?? null,
+        };
+      });
+
       return {
-        present: enriched.filter(e => e.status === "present").length,
-        absent: enriched.filter(e => e.status === "absent").length,
-        onLeave: enriched.filter(e => e.status === "on_leave").length,
-        late: enriched.filter(e => e.isLate).length,
-        total: directReports.length,
-        records: enriched,
+        present: records.filter(item => item.status === "present").length,
+        absent: records.filter(item => item.status === "absent").length,
+        onLeave: records.filter(item => item.status === "on_leave").length,
+        late: records.filter(item => item.isLate).length,
+        total: reports.length,
+        records,
       };
     }),
 
-  /** Pending leave requests from direct reports */
   pendingApprovals: protectedProcedure
     .input(z.object({
       companyId: z.number(),
       managerId: z.number(),
     }))
     .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return [];
-      const directReports = await db.select({
-        id: employees.id,
-        firstName: employees.firstName,
-        lastName: employees.lastName,
-        departmentId: employees.departmentId,
-        designationId: employees.designationId,
-      })
-        .from(employees)
-        .where(and(
-          eq(employees.companyId, input.companyId),
-          eq(employees.reportsToId, input.managerId),
-          eq(employees.status, "active"),
-        ));
-      if (directReports.length === 0) return [];
-      const reportIds = directReports.map(e => e.id);
-      const pending = await db.select().from(leaveRequests)
-        .where(and(
-          inArray(leaveRequests.employeeId, reportIds),
-          eq(leaveRequests.status, "pending"),
-        ))
-        .orderBy(desc(leaveRequests.createdAt));
-      if (pending.length === 0) return [];
-      const typeIds = Array.from(new Set(pending.map(r => r.leaveTypeId)));
-      const types = await db.select().from(leaveTypes).where(inArray(leaveTypes.id, typeIds));
-      const typeMap = Object.fromEntries(types.map(t => [t.id, t]));
-      const empMap = Object.fromEntries(directReports.map(e => [e.id, e]));
-      return pending.map(r => ({
-        ...r,
-        leaveTypeName: typeMap[r.leaveTypeId]?.name ?? "Leave",
-        leaveTypeColor: typeMap[r.leaveTypeId]?.colorCode ?? "#6B7280",
-        employeeName: empMap[r.employeeId]
-          ? `${empMap[r.employeeId].firstName} ${empMap[r.employeeId].lastName}`
+      const reports = await getDirectReports(input.companyId, input.managerId);
+      if (reports.length === 0) return [];
+
+      const reportIds = new Set(reports.map((employee: any) => employee.id));
+      const [pendingRequests, leaveTypes] = await Promise.all([
+        listLeaveRequests(input.companyId, { status: "pending", limit: 1000 }),
+        listLeaveTypes(input.companyId),
+      ]);
+      const filtered = pendingRequests.filter((request: any) => reportIds.has(request.employeeId));
+      const typeMap = new Map<number, any>(leaveTypes.map((type: any) => [type.id, type]));
+      const employeeMap = new Map<number, any>(reports.map((employee: any) => [employee.id, employee]));
+      return filtered.map((request: any) => ({
+        ...request,
+        leaveTypeName: typeMap.get(request.leaveTypeId)?.name ?? "Leave",
+        leaveTypeColor: typeMap.get(request.leaveTypeId)?.colorCode ?? "#6B7280",
+        employeeName: employeeMap.get(request.employeeId)
+          ? `${employeeMap.get(request.employeeId).firstName} ${employeeMap.get(request.employeeId).lastName}`
           : "Unknown",
       }));
     }),
 
-  /** One-touch approve a leave request */
   approveLeave: protectedProcedure
     .input(z.object({
       leaveRequestId: z.number(),
@@ -404,15 +277,14 @@ const mssRouter = router({
       comment: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-      await db.update(leaveRequests)
-        .set({ status: "approved", updatedAt: new Date() })
-        .where(eq(leaveRequests.id, input.leaveRequestId));
+      await updateLeaveRequest(input.leaveRequestId, {
+        status: "approved",
+        approvedBy: input.approverId,
+        approvedAt: new Date(),
+      });
       return { success: true };
     }),
 
-  /** One-touch reject a leave request */
   rejectLeave: protectedProcedure
     .input(z.object({
       leaveRequestId: z.number(),
@@ -420,15 +292,14 @@ const mssRouter = router({
       comment: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-      await db.update(leaveRequests)
-        .set({ status: "rejected", updatedAt: new Date() })
-        .where(eq(leaveRequests.id, input.leaveRequestId));
+      await updateLeaveRequest(input.leaveRequestId, {
+        status: "rejected",
+        approvedBy: input.approverId,
+        rejectedReason: input.comment,
+      });
       return { success: true };
     }),
 
-  /** AI coverage summary for a pending leave request */
   coverageSummary: protectedProcedure
     .input(z.object({
       companyId: z.number(),
@@ -439,19 +310,19 @@ const mssRouter = router({
       teamSize: z.number().optional(),
     }))
     .mutation(async ({ input }) => {
-      const overlapping = await listLeaveRequests(input.companyId, {
-        startDate: input.startDate,
-        endDate: input.endDate,
+      const overlappingLeaves = await listLeaveRequests(input.companyId, {
         status: "approved",
+        limit: 1000,
       });
       const summary = await analyzeTeamCoverage({
         ...input,
-        overlappingLeaves: overlapping,
+        overlappingLeaves: overlappingLeaves.filter((request: any) =>
+          request.startDate <= input.endDate && request.endDate >= input.startDate
+        ),
       });
       return { summary, aiGenerated: true };
     }),
 
-  /** Team leave calendar data (month view) */
   teamLeaveCalendar: protectedProcedure
     .input(z.object({
       companyId: z.number(),
@@ -460,47 +331,35 @@ const mssRouter = router({
       month: z.number(),
     }))
     .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return [];
-      const directReports = await db.select({
-        id: employees.id,
-        firstName: employees.firstName,
-        lastName: employees.lastName,
-      })
-        .from(employees)
-        .where(and(
-          eq(employees.companyId, input.companyId),
-          eq(employees.reportsToId, input.managerId),
-          eq(employees.status, "active"),
-        ));
-      if (directReports.length === 0) return [];
-      const reportIds = directReports.map(e => e.id);
+      const reports = await getDirectReports(input.companyId, input.managerId);
+      if (reports.length === 0) return [];
+
+      const reportIds = new Set(reports.map((employee: any) => employee.id));
+      const [requests, leaveTypes] = await Promise.all([
+        listLeaveRequests(input.companyId, { limit: 1000 }),
+        listLeaveTypes(input.companyId),
+      ]);
       const start = new Date(input.year, input.month - 1, 1);
-      const end = new Date(input.year, input.month, 0, 23, 59, 59);
-      const requests = await db.select().from(leaveRequests)
-        .where(and(
-          inArray(leaveRequests.employeeId, reportIds),
-          or(eq(leaveRequests.status, "approved"), eq(leaveRequests.status, "pending")),
-          lte(leaveRequests.startDate, end),
-          gte(leaveRequests.endDate, start),
-        ));
-      const typeIds = Array.from(new Set(requests.map(r => r.leaveTypeId)));
-      const types = typeIds.length > 0
-        ? await db.select().from(leaveTypes).where(inArray(leaveTypes.id, typeIds))
-        : [];
-      const typeMap = Object.fromEntries(types.map(t => [t.id, t]));
-      const empMap = Object.fromEntries(directReports.map(e => [e.id, e]));
-      return requests.map(r => ({
-        ...r,
-        leaveTypeName: typeMap[r.leaveTypeId]?.name ?? "Leave",
-        leaveTypeColor: typeMap[r.leaveTypeId]?.colorCode ?? "#6B7280",
-        employeeName: empMap[r.employeeId]
-          ? `${empMap[r.employeeId].firstName} ${empMap[r.employeeId].lastName}`
-          : "Unknown",
-      }));
+      const end = new Date(input.year, input.month, 0, 23, 59, 59, 999);
+      const typeMap = new Map<number, any>(leaveTypes.map((type: any) => [type.id, type]));
+      const employeeMap = new Map<number, any>(reports.map((employee: any) => [employee.id, employee]));
+      return requests
+        .filter((request: any) =>
+          reportIds.has(request.employeeId) &&
+          (request.status === "approved" || request.status === "pending") &&
+          request.startDate <= end &&
+          request.endDate >= start
+        )
+        .map((request: any) => ({
+          ...request,
+          leaveTypeName: typeMap.get(request.leaveTypeId)?.name ?? "Leave",
+          leaveTypeColor: typeMap.get(request.leaveTypeId)?.colorCode ?? "#6B7280",
+          employeeName: employeeMap.get(request.employeeId)
+            ? `${employeeMap.get(request.employeeId).firstName} ${employeeMap.get(request.employeeId).lastName}`
+            : "Unknown",
+        }));
     }),
 
-  /** Team attendance + leave summary stats for the current month */
   teamReports: protectedProcedure
     .input(z.object({
       companyId: z.number(),
@@ -509,63 +368,53 @@ const mssRouter = router({
       month: z.number().optional(),
     }))
     .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return { headcount: 0, avgAttendance: 0, totalLeaves: 0, pendingApprovals: 0, topAbsentees: [] };
+      const reports = await getDirectReports(input.companyId, input.managerId);
+      if (reports.length === 0) {
+        return { headcount: 0, avgAttendance: 0, totalLeaves: 0, pendingApprovals: 0, topAbsentees: [] };
+      }
+
       const now = new Date();
       const year = input.year ?? now.getFullYear();
       const month = input.month ?? (now.getMonth() + 1);
       const start = new Date(year, month - 1, 1);
-      const end = new Date(year, month, 0, 23, 59, 59);
-      const directReports = await db.select().from(employees)
-        .where(and(
-          eq(employees.companyId, input.companyId),
-          eq(employees.reportsToId, input.managerId),
-          eq(employees.status, "active"),
-        ));
-      if (directReports.length === 0) return { headcount: 0, avgAttendance: 0, totalLeaves: 0, pendingApprovals: 0, topAbsentees: [] };
-      const reportIds = directReports.map(e => e.id);
-      const [attRecords, leaveReqs] = await Promise.all([
-        db.select().from(attendanceRecords)
-          .where(and(
-            inArray(attendanceRecords.employeeId, reportIds),
-            gte(attendanceRecords.date, start),
-            lte(attendanceRecords.date, end),
-          )),
-        db.select().from(leaveRequests)
-          .where(and(
-            inArray(leaveRequests.employeeId, reportIds),
-            or(eq(leaveRequests.status, "approved"), eq(leaveRequests.status, "pending")),
-          )),
+      const end = new Date(year, month, 0, 23, 59, 59, 999);
+      const reportIds = new Set(reports.map((employee: any) => employee.id));
+      const [attendance, leaveRequests] = await Promise.all([
+        getAttendanceReportData(input.companyId, start, end),
+        listLeaveRequests(input.companyId, { limit: 1000 }),
       ]);
-      const presentCount = attRecords.filter(r => r.status === "present").length;
-      const avgAttendance = Math.round((presentCount / Math.max(1, attRecords.length)) * 100);
-      const pendingApprovals = leaveReqs.filter(r => r.status === "pending").length;
-      const absentByEmp: Record<number, number> = {};
-      attRecords.filter(r => r.status === "absent").forEach(r => {
-        absentByEmp[r.employeeId] = (absentByEmp[r.employeeId] ?? 0) + 1;
-      });
-      const empMap = Object.fromEntries(directReports.map(e => [e.id, e]));
-      const topAbsentees = Object.entries(absentByEmp)
-        .sort(([, a], [, b]) => b - a)
+      const teamAttendance = attendance.filter((record: any) => reportIds.has(record.employeeId));
+      const teamLeaveRequests = leaveRequests.filter((request: any) => reportIds.has(request.employeeId));
+      const presentCount = teamAttendance.filter((record: any) => record.status === "present").length;
+      const avgAttendance = Math.round((presentCount / Math.max(1, teamAttendance.length)) * 100);
+
+      const absenceCount = new Map<number, number>();
+      for (const record of teamAttendance.filter((item: any) => item.status === "absent")) {
+        absenceCount.set(record.employeeId, (absenceCount.get(record.employeeId) ?? 0) + 1);
+      }
+
+      const employeeMap = new Map<number, any>(reports.map((employee: any) => [employee.id, employee]));
+      const topAbsentees = Array.from(absenceCount.entries())
+        .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
-        .map(([empId, count]) => ({
-          employeeId: Number(empId),
-          employeeName: empMap[Number(empId)]
-            ? `${empMap[Number(empId)].firstName} ${empMap[Number(empId)].lastName}`
+        .map(([employeeId, absentDays]) => ({
+          employeeId,
+          employeeName: employeeMap.get(employeeId)
+            ? `${employeeMap.get(employeeId).firstName} ${employeeMap.get(employeeId).lastName}`
             : "Unknown",
-          absentDays: count,
+          absentDays,
         }));
+
       return {
-        headcount: directReports.length,
+        headcount: reports.length,
         avgAttendance,
-        totalLeaves: leaveReqs.filter(r => r.status === "approved").length,
-        pendingApprovals,
+        totalLeaves: teamLeaveRequests.filter((request: any) => request.status === "approved").length,
+        pendingApprovals: teamLeaveRequests.filter((request: any) => request.status === "pending").length,
         topAbsentees,
       };
     }),
 });
 
-// ─── MAIN EXPORT ─────────────────────────────────────────────────────────────
 export const selfServiceRouter = router({
   ess: essRouter,
   mss: mssRouter,

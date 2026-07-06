@@ -14,7 +14,7 @@ import {
   updateDepartment,
   updateDesignation,
   updateLocation,
-} from "../db";
+} from "../mongoDb";
 import { protectedProcedure, router } from "../_core/trpc";
 
 export const orgRouter = router({

@@ -14,7 +14,7 @@ import {
   getPendingApprovalsCount,
   updateWorkflowInstance,
   updateWorkflowInstanceStep,
-} from "../db";
+} from "../mongoDb";
 import { protectedProcedure, router } from "../_core/trpc";
 
 export const workflowRouter = router({
@@ -50,7 +50,7 @@ export const workflowRouter = router({
 
       // Re-fetch to get the ID
       const templates = await getWorkflowTemplates(input.companyId);
-      const newTemplate = templates.find((t) => t.name === input.name && t.requestType === input.requestType);
+      const newTemplate = templates.find((template: any) => template.name === input.name && template.requestType === input.requestType);
       if (newTemplate) {
         for (const step of steps) {
           await createWorkflowStep({ ...step, templateId: newTemplate.id, companyId: input.companyId });
@@ -174,7 +174,7 @@ export const workflowRouter = router({
         // Check if there's a next step
         const allSteps = await getWorkflowInstanceSteps(input.instanceId, input.companyId);
         const nextStep = allSteps.find(
-          (s) => s.stepOrder === (instance.currentStepOrder ?? 1) + 1
+          (step: any) => step.stepOrder === (instance.currentStepOrder ?? 1) + 1
         );
         if (nextStep) {
           await updateWorkflowInstance(input.instanceId, input.companyId, {

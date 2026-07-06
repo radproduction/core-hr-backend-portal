@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createAuditLog, getAuditLogs } from "../db";
+import { createAuditLog, getAuditLogs } from "../mongoDb";
 import { protectedProcedure, router } from "../_core/trpc";
 
 export const auditRouter = router({

@@ -5,7 +5,7 @@ import {
   getUnreadNotificationCount,
   markAllNotificationsRead,
   markNotificationRead,
-} from "../db";
+} from "../mongoDb";
 import { protectedProcedure, router } from "../_core/trpc";
 
 export const notificationsRouter = router({

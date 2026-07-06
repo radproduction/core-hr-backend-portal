@@ -19,7 +19,7 @@ import { performanceRouter } from "./routers/performanceRouter";
 import { aiAssistantRouter } from "./routers/aiAssistantRouter";
 import { selfServiceRouter } from "./routers/selfServiceRouter";
 import { expenseRouter } from "./routers/expenseRouter";
-import { getUserRoles } from "./accessDb";
+import { getUserRoles } from "./mongoDb";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -37,7 +37,7 @@ export const appRouter = router({
       // Enrich with the primary active HCM role slug
       try {
         const roles = await getUserRoles(user.id, 1);
-        const primaryRole = roles.find(r => r.isActive);
+        const primaryRole = roles.find((role: any) => role.isActive);
         return {
           ...user,
           hcmRoleSlug: primaryRole?.roleSlug ?? (user.role === "admin" ? "super_admin" : "employee"),

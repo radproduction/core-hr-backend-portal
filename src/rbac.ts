@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { getRolePermissions } from "./db";
+import { getRolePermissions } from "./mongoDb";
 
 // ─── HCM Module constants ─────────────────────────────────────────────────────
 export const HCM_MODULES = [

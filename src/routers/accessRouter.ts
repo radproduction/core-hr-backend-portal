@@ -32,7 +32,7 @@ import {
   upsertUserAccessProfile,
   upsertUserPermissionOverride,
   writeAccessAuditLog,
-} from "../accessDb";
+} from "../mongoDb";
 import { protectedProcedure, router } from "../_core/trpc";
 
 const COMPANY_ID = 1; // TODO: derive from ctx when multi-tenant is wired
@@ -355,7 +355,7 @@ const permissionsRouter = router({
         entityType: "rolePermission",
         entityId: input.hcmRoleId,
         entityLabel: `role:${input.hcmRoleId} module:${input.module}`,
-        before: before.find((p) => p.module === input.module),
+        before: before.find((permission: any) => permission.module === input.module),
         after: input,
       });
       return { success: true };
