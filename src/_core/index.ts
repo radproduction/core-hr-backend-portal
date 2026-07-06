@@ -1,4 +1,13 @@
 import "dotenv/config";
+import { webcrypto as _webcrypto } from "node:crypto";
+
+// jose v6 signs/verifies JWTs via the WebCrypto API, accessed through the
+// global `crypto`. Node 18 does not expose `crypto` globally (only Node 20+),
+// so polyfill it to keep auth working regardless of the runtime Node version.
+if (!(globalThis as unknown as { crypto?: unknown }).crypto) {
+  (globalThis as unknown as { crypto: unknown }).crypto = _webcrypto;
+}
+
 import express from "express";
 import { createServer } from "http";
 import net from "net";
