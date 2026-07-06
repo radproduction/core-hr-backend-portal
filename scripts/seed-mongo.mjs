@@ -28,9 +28,18 @@
 
 import mongoose, { Schema } from "mongoose";
 import { randomBytes, scryptSync } from "node:crypto";
+import dns from "node:dns";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+// Some networks/routers refuse SRV DNS lookups (mongodb+srv://), causing
+// "querySrv ECONNREFUSED". Force a public resolver that supports SRV records.
+try {
+  dns.setServers(["8.8.8.8", "1.1.1.1", "8.8.4.4"]);
+} catch {
+  /* ignore — fall back to system DNS */
+}
 
 const MONGODB_URI = process.env.MONGODB_URI;
 if (!MONGODB_URI) {
