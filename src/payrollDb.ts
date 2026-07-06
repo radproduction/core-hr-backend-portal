@@ -1,236 +1,191 @@
 /**
- * payrollDb.ts — DB query helpers for Module 4: Payroll Management
+ * payrollDb.ts — DB query helpers for Module 4: Payroll Management (MongoDB)
  *
- * All helpers return raw Drizzle rows. Business logic lives in the router.
  * The payroll run engine (generatePayslips) is the core computation function.
  */
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
-import { getDb } from "./db";
-import {
-  disbursementCycles,
-  employeeSalaryAssignments,
-  employees,
-  loans,
-  payrollAnomalyFlags,
-  payrollRuns,
-  payslips,
-  pfSettings,
-  salaryAdvances,
-  salaryComponents,
-  salaryStructureComponents,
-  salaryStructures,
-  taxSlabs,
-  type InsertDisbursementCycle,
-  type InsertEmployeeSalaryAssignment,
-  type InsertLoan,
-  type InsertPayrollAnomalyFlag,
-  type InsertPayrollRun,
-  type InsertPayslip,
-  type InsertPfSettings,
-  type InsertSalaryAdvance,
-  type InsertSalaryComponent,
-  type InsertSalaryStructure,
-  type InsertSalaryStructureComponent,
-  type InsertTaxSlab,
+import type {
+  InsertDisbursementCycle,
+  InsertEmployeeSalaryAssignment,
+  InsertLoan,
+  InsertPayrollAnomalyFlag,
+  InsertPayrollRun,
+  InsertPayslip,
+  InsertPfSettings,
+  InsertSalaryAdvance,
+  InsertSalaryComponent,
+  InsertSalaryStructure,
+  InsertSalaryStructureComponent,
+  InsertTaxSlab,
 } from "../drizzle/schema";
+import { getEmployees } from "./mongoDb";
+import {
+  insertDoc, updateDoc, findMany, findOneDoc, deleteOneDoc,
+} from "./_core/mongoStore";
 
-function requireDb() {
-  const db = getDb();
-  if (!db) throw new Error("Database not available");
-  return db;
+const STRUCTURES = "SalaryStructureRecord";
+const COMPONENTS = "SalaryComponentRecord";
+const STRUCTURE_COMPONENTS = "SalaryStructureComponentRecord";
+const ASSIGNMENTS = "EmployeeSalaryAssignmentRecord";
+const TAX_SLABS = "TaxSlabRecord";
+const PF_SETTINGS = "PfSettingsRecord";
+const LOANS = "LoanRecord";
+const ADVANCES = "SalaryAdvanceRecord";
+const CYCLES = "DisbursementCycleRecord";
+const RUNS = "PayrollRunRecord";
+const PAYSLIPS = "PayslipRecord"; // shared with mongoDb.ts payslip collection
+const ANOMALIES = "PayrollAnomalyFlagRecord";
+const EMPLOYEES = "EmployeeRecord";
+
+// ─── Employee enrichment helpers ────────────────────────────────────────────
+async function employeesByIds(ids: number[]): Promise<Map<number, any>> {
+  const unique = Array.from(new Set(ids));
+  if (!unique.length) return new Map();
+  const emps = await findMany(EMPLOYEES, { id: { $in: unique } });
+  return new Map(emps.map((e: any) => [e.id, e]));
 }
+const fullName = (e: any) => (e ? `${e.firstName} ${e.lastName}` : "");
 
 // ─────────────────────────────────────────────
 // SALARY STRUCTURES
 // ─────────────────────────────────────────────
 export async function listSalaryStructures(companyId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  return db.select().from(salaryStructures).where(eq(salaryStructures.companyId, companyId)).orderBy(salaryStructures.name);
+  return findMany(STRUCTURES, { companyId }, { name: 1 });
 }
 
 export async function getSalaryStructure(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const rows = await db.select().from(salaryStructures).where(eq(salaryStructures.id, id)).limit(1);
-  return rows[0] ?? null;
+  return (await findOneDoc(STRUCTURES, { id })) ?? null;
 }
 
 export async function createSalaryStructure(data: InsertSalaryStructure) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const result = await db.insert(salaryStructures).values(data);
-  return { id: Number(result[0].insertId) };
+  return insertDoc(STRUCTURES, "salaryStructures", data as Record<string, unknown>);
 }
 
 export async function updateSalaryStructure(id: number, data: Partial<InsertSalaryStructure>) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.update(salaryStructures).set(data).where(eq(salaryStructures.id, id));
+  await updateDoc(STRUCTURES, { id }, data);
 }
 
 export async function deleteSalaryStructure(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.delete(salaryStructures).where(eq(salaryStructures.id, id));
+  await deleteOneDoc(STRUCTURES, { id });
 }
 
 // ─────────────────────────────────────────────
 // SALARY COMPONENTS
 // ─────────────────────────────────────────────
 export async function listSalaryComponents(companyId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  return db.select().from(salaryComponents).where(eq(salaryComponents.companyId, companyId)).orderBy(salaryComponents.sortOrder, salaryComponents.name);
+  return findMany(COMPONENTS, { companyId }, { sortOrder: 1, name: 1 });
 }
 
 export async function getSalaryComponent(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const rows = await db.select().from(salaryComponents).where(eq(salaryComponents.id, id)).limit(1);
-  return rows[0] ?? null;
+  return (await findOneDoc(COMPONENTS, { id })) ?? null;
 }
 
 export async function createSalaryComponent(data: InsertSalaryComponent) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const result = await db.insert(salaryComponents).values(data);
-  return { id: Number(result[0].insertId) };
+  return insertDoc(COMPONENTS, "salaryComponents", data as Record<string, unknown>);
 }
 
 export async function updateSalaryComponent(id: number, data: Partial<InsertSalaryComponent>) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.update(salaryComponents).set(data).where(eq(salaryComponents.id, id));
+  await updateDoc(COMPONENTS, { id }, data);
 }
 
 export async function deleteSalaryComponent(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.delete(salaryComponents).where(eq(salaryComponents.id, id));
+  await deleteOneDoc(COMPONENTS, { id });
 }
 
 // ─────────────────────────────────────────────
 // SALARY STRUCTURE COMPONENTS (many-to-many)
 // ─────────────────────────────────────────────
 export async function getStructureComponents(structureId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  return db
-    .select({
-      id: salaryStructureComponents.id,
-      structureId: salaryStructureComponents.structureId,
-      componentId: salaryStructureComponents.componentId,
-      overrideValue: salaryStructureComponents.overrideValue,
-      isActive: salaryStructureComponents.isActive,
-      componentName: salaryComponents.name,
-      componentCode: salaryComponents.code,
-      componentType: salaryComponents.type,
-      calculationType: salaryComponents.calculationType,
-      defaultValue: salaryComponents.value,
-      isTaxable: salaryComponents.isTaxable,
-      isPFApplicable: salaryComponents.isPFApplicable,
-    })
-    .from(salaryStructureComponents)
-    .innerJoin(salaryComponents, eq(salaryStructureComponents.componentId, salaryComponents.id))
-    .where(eq(salaryStructureComponents.structureId, structureId));
+  const links = await findMany(STRUCTURE_COMPONENTS, { structureId });
+  if (!links.length) return [];
+  const compIds = links.map((l: any) => l.componentId);
+  const comps = await findMany(COMPONENTS, { id: { $in: compIds } });
+  const compMap = new Map(comps.map((c: any) => [c.id, c]));
+  return links.map((l: any) => {
+    const c: any = compMap.get(l.componentId) ?? {};
+    return {
+      id: l.id,
+      structureId: l.structureId,
+      componentId: l.componentId,
+      overrideValue: l.overrideValue ?? null,
+      isActive: l.isActive,
+      componentName: c.name,
+      componentCode: c.code,
+      componentType: c.type,
+      calculationType: c.calculationType,
+      defaultValue: c.value,
+      isTaxable: c.isTaxable,
+      isPFApplicable: c.isPFApplicable,
+    };
+  });
 }
 
 export async function addComponentToStructure(data: InsertSalaryStructureComponent) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const result = await db.insert(salaryStructureComponents).values(data);
-  return { id: Number(result[0].insertId) };
+  return insertDoc(STRUCTURE_COMPONENTS, "salaryStructureComponents", data as Record<string, unknown>);
 }
 
 export async function removeComponentFromStructure(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.delete(salaryStructureComponents).where(eq(salaryStructureComponents.id, id));
+  await deleteOneDoc(STRUCTURE_COMPONENTS, { id });
 }
 
 // ─────────────────────────────────────────────
 // EMPLOYEE SALARY ASSIGNMENTS
 // ─────────────────────────────────────────────
 export async function getEmployeeSalaryAssignment(employeeId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const rows = await db
-    .select()
-    .from(employeeSalaryAssignments)
-    .where(eq(employeeSalaryAssignments.employeeId, employeeId))
-    .orderBy(desc(employeeSalaryAssignments.effectiveDate))
-    .limit(1);
+  const rows = await findMany(ASSIGNMENTS, { employeeId }, { effectiveDate: -1 }, 1);
   return rows[0] ?? null;
 }
 
 export async function listSalaryAssignments(companyId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  return db
-    .select({
-      id: employeeSalaryAssignments.id,
-      employeeId: employeeSalaryAssignments.employeeId,
-      structureId: employeeSalaryAssignments.structureId,
-      basicSalary: employeeSalaryAssignments.basicSalary,
-      currency: employeeSalaryAssignments.currency,
-      effectiveDate: employeeSalaryAssignments.effectiveDate,
-      notes: employeeSalaryAssignments.notes,
-      employeeName: sql<string>`CONCAT(${employees.firstName}, ' ', ${employees.lastName})`,
-      structureName: salaryStructures.name,
-    })
-    .from(employeeSalaryAssignments)
-    .innerJoin(employees, eq(employeeSalaryAssignments.employeeId, employees.id))
-    .innerJoin(salaryStructures, eq(employeeSalaryAssignments.structureId, salaryStructures.id))
-    .where(eq(employees.companyId, companyId))
-    .orderBy(desc(employeeSalaryAssignments.effectiveDate));
+  const emps = await getEmployees(companyId);
+  const empMap = new Map(emps.map((e: any) => [e.id, e]));
+  const empIds = emps.map((e: any) => e.id);
+  const rows = await findMany(ASSIGNMENTS, { employeeId: { $in: empIds } }, { effectiveDate: -1 });
+  const structs = await findMany(STRUCTURES, { companyId });
+  const structMap = new Map(structs.map((s: any) => [s.id, s]));
+  return rows.map((a: any) => ({
+    id: a.id,
+    employeeId: a.employeeId,
+    structureId: a.structureId,
+    basicSalary: a.basicSalary,
+    currency: a.currency,
+    effectiveDate: a.effectiveDate,
+    notes: a.notes,
+    employeeName: fullName(empMap.get(a.employeeId)),
+    structureName: (structMap.get(a.structureId) as any)?.name ?? null,
+  }));
 }
 
 export async function assignSalaryStructure(data: InsertEmployeeSalaryAssignment) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const result = await db.insert(employeeSalaryAssignments).values(data);
-  return { id: Number(result[0].insertId) };
+  return insertDoc(ASSIGNMENTS, "employeeSalaryAssignments", data as Record<string, unknown>);
 }
 
 export async function updateSalaryAssignment(id: number, data: Partial<InsertEmployeeSalaryAssignment>) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.update(employeeSalaryAssignments).set(data).where(eq(employeeSalaryAssignments.id, id));
+  await updateDoc(ASSIGNMENTS, { id }, data);
 }
 
 // ─────────────────────────────────────────────
 // TAX SLABS
 // ─────────────────────────────────────────────
 export async function listTaxSlabs(companyId: number, year?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const conditions = [eq(taxSlabs.companyId, companyId)];
-  if (year) conditions.push(eq(taxSlabs.year, year));
-  return db.select().from(taxSlabs).where(and(...conditions)).orderBy(taxSlabs.year, taxSlabs.fromAmount);
+  const q: Record<string, unknown> = { companyId };
+  if (year) q.year = year;
+  return findMany(TAX_SLABS, q, { year: 1, fromAmount: 1 });
 }
 
 export async function upsertTaxSlab(data: InsertTaxSlab) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
   if ((data as any).id) {
     const { id, ...rest } = data as any;
-    await db.update(taxSlabs).set(rest).where(eq(taxSlabs.id, id));
+    await updateDoc(TAX_SLABS, { id }, rest);
     return { id };
   }
-  const result = await db.insert(taxSlabs).values(data);
-  return { id: Number(result[0].insertId) };
+  return insertDoc(TAX_SLABS, "taxSlabs", data as Record<string, unknown>);
 }
 
 export async function deleteTaxSlab(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.delete(taxSlabs).where(eq(taxSlabs.id, id));
+  await deleteOneDoc(TAX_SLABS, { id });
 }
 
-/**
- * Compute tax for a given annual gross using progressive slabs.
- */
+/** Compute tax for a given annual gross using progressive slabs. */
 export function computeTaxForAmount(slabs: Array<{ fromAmount: string; toAmount: string | null; rate: string; fixedAmount: string }>, annualGross: number): number {
   let tax = 0;
   for (const slab of slabs) {
@@ -250,353 +205,160 @@ export function computeTaxForAmount(slabs: Array<{ fromAmount: string; toAmount:
 // PF SETTINGS
 // ─────────────────────────────────────────────
 export async function getPfSettings(companyId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const rows = await db.select().from(pfSettings).where(eq(pfSettings.companyId, companyId)).limit(1);
-  return rows[0] ?? null;
+  return (await findOneDoc(PF_SETTINGS, { companyId })) ?? null;
 }
 
 export async function upsertPfSettings(data: InsertPfSettings & { companyId: number }) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
   const existing = await getPfSettings(data.companyId);
   if (existing) {
-    await db.update(pfSettings).set(data).where(eq(pfSettings.companyId, data.companyId));
+    await updateDoc(PF_SETTINGS, { companyId: data.companyId }, data as Record<string, unknown>);
     return { id: existing.id };
   }
-  const result = await db.insert(pfSettings).values(data);
-  return { id: Number(result[0].insertId) };
+  return insertDoc(PF_SETTINGS, "pfSettings", data as Record<string, unknown>);
 }
 
 // ─────────────────────────────────────────────
 // LOANS
 // ─────────────────────────────────────────────
 export async function listLoans(companyId: number, employeeId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const conditions = [eq(loans.companyId, companyId)];
-  if (employeeId) conditions.push(eq(loans.employeeId, employeeId));
-  return db
-    .select({
-      id: loans.id,
-      companyId: loans.companyId,
-      employeeId: loans.employeeId,
-      loanType: loans.loanType,
-      principalAmount: loans.principalAmount,
-      interestRate: loans.interestRate,
-      totalInstallments: loans.totalInstallments,
-      remainingInstallments: loans.remainingInstallments,
-      monthlyDeduction: loans.monthlyDeduction,
-      disbursedDate: loans.disbursedDate,
-      status: loans.status,
-      approvedBy: loans.approvedBy,
-      notes: loans.notes,
-      createdAt: loans.createdAt,
-      employeeName: sql<string>`CONCAT(${employees.firstName}, ' ', ${employees.lastName})`,
-    })
-    .from(loans)
-    .innerJoin(employees, eq(loans.employeeId, employees.id))
-    .where(and(...conditions))
-    .orderBy(desc(loans.createdAt));
+  const q: Record<string, unknown> = { companyId };
+  if (employeeId) q.employeeId = employeeId;
+  const rows = await findMany(LOANS, q, { createdAt: -1 });
+  const empMap = await employeesByIds(rows.map((r: any) => r.employeeId));
+  return rows.map((l: any) => ({ ...l, employeeName: fullName(empMap.get(l.employeeId)) }));
 }
 
 export async function getLoan(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const rows = await db.select().from(loans).where(eq(loans.id, id)).limit(1);
-  return rows[0] ?? null;
+  return (await findOneDoc(LOANS, { id })) ?? null;
 }
 
 export async function createLoan(data: InsertLoan) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const result = await db.insert(loans).values(data);
-  return { id: Number(result[0].insertId) };
+  return insertDoc(LOANS, "loans", data as Record<string, unknown>);
 }
 
 export async function updateLoan(id: number, data: Partial<InsertLoan>) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.update(loans).set(data).where(eq(loans.id, id));
+  await updateDoc(LOANS, { id }, data);
 }
 
 export async function getActiveLoanDeductionsForEmployee(employeeId: number): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const activeLoans = await db
-    .select({ monthlyDeduction: loans.monthlyDeduction })
-    .from(loans)
-    .where(and(eq(loans.employeeId, employeeId), eq(loans.status, "active")));
-  return activeLoans.reduce((sum, l) => sum + parseFloat(l.monthlyDeduction), 0);
+  const activeLoans = await findMany(LOANS, { employeeId, status: "active" });
+  return activeLoans.reduce((sum: number, l: any) => sum + parseFloat(l.monthlyDeduction), 0);
 }
 
 // ─────────────────────────────────────────────
 // SALARY ADVANCES
 // ─────────────────────────────────────────────
 export async function listAdvances(companyId: number, employeeId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const conditions = [eq(salaryAdvances.companyId, companyId)];
-  if (employeeId) conditions.push(eq(salaryAdvances.employeeId, employeeId));
-  return db
-    .select({
-      id: salaryAdvances.id,
-      companyId: salaryAdvances.companyId,
-      employeeId: salaryAdvances.employeeId,
-      amount: salaryAdvances.amount,
-      requestedDate: salaryAdvances.requestedDate,
-      approvedDate: salaryAdvances.approvedDate,
-      deductionMonth: salaryAdvances.deductionMonth,
-      deductionYear: salaryAdvances.deductionYear,
-      status: salaryAdvances.status,
-      approvedBy: salaryAdvances.approvedBy,
-      notes: salaryAdvances.notes,
-      employeeName: sql<string>`CONCAT(${employees.firstName}, ' ', ${employees.lastName})`,
-    })
-    .from(salaryAdvances)
-    .innerJoin(employees, eq(salaryAdvances.employeeId, employees.id))
-    .where(and(...conditions))
-    .orderBy(desc(salaryAdvances.requestedDate));
+  const q: Record<string, unknown> = { companyId };
+  if (employeeId) q.employeeId = employeeId;
+  const rows = await findMany(ADVANCES, q, { requestedDate: -1 });
+  const empMap = await employeesByIds(rows.map((r: any) => r.employeeId));
+  return rows.map((a: any) => ({ ...a, employeeName: fullName(empMap.get(a.employeeId)) }));
 }
 
 export async function createAdvance(data: InsertSalaryAdvance) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const result = await db.insert(salaryAdvances).values(data);
-  return { id: Number(result[0].insertId) };
+  return insertDoc(ADVANCES, "salaryAdvances", data as Record<string, unknown>);
 }
 
 export async function updateAdvance(id: number, data: Partial<InsertSalaryAdvance>) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.update(salaryAdvances).set(data).where(eq(salaryAdvances.id, id));
+  await updateDoc(ADVANCES, { id }, data);
 }
 
 export async function getAdvanceDeductionsForMonth(employeeId: number, month: number, year: number): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const rows = await db
-    .select({ amount: salaryAdvances.amount })
-    .from(salaryAdvances)
-    .where(
-      and(
-        eq(salaryAdvances.employeeId, employeeId),
-        eq(salaryAdvances.deductionMonth, month),
-        eq(salaryAdvances.deductionYear, year),
-        eq(salaryAdvances.status, "approved")
-      )
-    );
-  return rows.reduce((sum, r) => sum + parseFloat(r.amount), 0);
+  const rows = await findMany(ADVANCES, { employeeId, deductionMonth: month, deductionYear: year, status: "approved" });
+  return rows.reduce((sum: number, r: any) => sum + parseFloat(r.amount), 0);
 }
 
 // ─────────────────────────────────────────────
 // DISBURSEMENT CYCLES
 // ─────────────────────────────────────────────
 export async function listDisbursementCycles(companyId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  return db.select().from(disbursementCycles).where(eq(disbursementCycles.companyId, companyId));
+  return findMany(CYCLES, { companyId });
 }
 
 export async function createDisbursementCycle(data: InsertDisbursementCycle) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const result = await db.insert(disbursementCycles).values(data);
-  return { id: Number(result[0].insertId) };
+  return insertDoc(CYCLES, "disbursementCycles", data as Record<string, unknown>);
 }
 
 export async function updateDisbursementCycle(id: number, data: Partial<InsertDisbursementCycle>) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.update(disbursementCycles).set(data).where(eq(disbursementCycles.id, id));
+  await updateDoc(CYCLES, { id }, data);
 }
 
 // ─────────────────────────────────────────────
 // PAYROLL RUNS
 // ─────────────────────────────────────────────
 export async function listPayrollRuns(companyId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  return db
-    .select()
-    .from(payrollRuns)
-    .where(eq(payrollRuns.companyId, companyId))
-    .orderBy(desc(payrollRuns.year), desc(payrollRuns.month));
+  return findMany(RUNS, { companyId }, { year: -1, month: -1 });
 }
 
 export async function getPayrollRun(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const rows = await db.select().from(payrollRuns).where(eq(payrollRuns.id, id)).limit(1);
-  return rows[0] ?? null;
+  return (await findOneDoc(RUNS, { id })) ?? null;
 }
 
 export async function createPayrollRun(data: InsertPayrollRun) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const result = await db.insert(payrollRuns).values(data);
-  return { id: Number(result[0].insertId) };
+  return insertDoc(RUNS, "payrollRuns", data as Record<string, unknown>);
 }
 
 export async function updatePayrollRunStatus(
   id: number,
   data: Partial<Pick<InsertPayrollRun, "status" | "approvedBy" | "approvedAt" | "lockedAt" | "totalGross" | "totalDeductions" | "totalNet" | "employeeCount">>
 ) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.update(payrollRuns).set(data as any).where(eq(payrollRuns.id, id));
+  await updateDoc(RUNS, { id }, data as Record<string, unknown>);
 }
 
 // ─────────────────────────────────────────────
 // PAYSLIPS
 // ─────────────────────────────────────────────
 export async function listPayslips(payrollRunId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  return db
-    .select({
-      id: payslips.id,
-      payrollRunId: payslips.payrollRunId,
-      employeeId: payslips.employeeId,
-      month: payslips.month,
-      year: payslips.year,
-      basicSalary: payslips.basicSalary,
-      grossSalary: payslips.grossSalary,
-      totalEarnings: payslips.totalEarnings,
-      totalDeductions: payslips.totalDeductions,
-      taxAmount: payslips.taxAmount,
-      pfEmployee: payslips.pfEmployee,
-      pfEmployer: payslips.pfEmployer,
-      loanDeductions: payslips.loanDeductions,
-      advanceDeductions: payslips.advanceDeductions,
-      lateDeductions: payslips.lateDeductions,
-      absentDeductions: payslips.absentDeductions,
-      netSalary: payslips.netSalary,
-      currency: payslips.currency,
-      attendanceDays: payslips.attendanceDays,
-      absentDays: payslips.absentDays,
-      components: payslips.components,
-      status: payslips.status,
-      pdfKey: payslips.pdfKey,
-      createdAt: payslips.createdAt,
-      employeeName: sql<string>`CONCAT(${employees.firstName}, ' ', ${employees.lastName})`,
-      employeeNumber: employees.employeeNumber,
+  const rows = await findMany(PAYSLIPS, { payrollRunId });
+  const empMap = await employeesByIds(rows.map((r: any) => r.employeeId));
+  return rows
+    .map((p: any) => {
+      const e = empMap.get(p.employeeId);
+      return { ...p, employeeName: fullName(e), employeeNumber: e?.employeeNumber ?? null };
     })
-    .from(payslips)
-    .innerJoin(employees, eq(payslips.employeeId, employees.id))
-    .where(eq(payslips.payrollRunId, payrollRunId))
-    .orderBy(employees.firstName);
+    .sort((a: any, b: any) => (a.employeeName || "").localeCompare(b.employeeName || ""));
 }
 
 export async function getPayslip(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const rows = await db
-    .select({
-      id: payslips.id,
-      payrollRunId: payslips.payrollRunId,
-      employeeId: payslips.employeeId,
-      month: payslips.month,
-      year: payslips.year,
-      basicSalary: payslips.basicSalary,
-      grossSalary: payslips.grossSalary,
-      totalEarnings: payslips.totalEarnings,
-      totalDeductions: payslips.totalDeductions,
-      taxAmount: payslips.taxAmount,
-      pfEmployee: payslips.pfEmployee,
-      pfEmployer: payslips.pfEmployer,
-      loanDeductions: payslips.loanDeductions,
-      advanceDeductions: payslips.advanceDeductions,
-      lateDeductions: payslips.lateDeductions,
-      absentDeductions: payslips.absentDeductions,
-      netSalary: payslips.netSalary,
-      currency: payslips.currency,
-      attendanceDays: payslips.attendanceDays,
-      absentDays: payslips.absentDays,
-      components: payslips.components,
-      status: payslips.status,
-      pdfKey: payslips.pdfKey,
-      createdAt: payslips.createdAt,
-      employeeName: sql<string>`CONCAT(${employees.firstName}, ' ', ${employees.lastName})`,
-      employeeNumber: employees.employeeNumber,
-      workEmail: employees.workEmail,
-    })
-    .from(payslips)
-    .innerJoin(employees, eq(payslips.employeeId, employees.id))
-    .where(eq(payslips.id, id))
-    .limit(1);
-  return rows[0] ?? null;
+  const p = await findOneDoc(PAYSLIPS, { id });
+  if (!p) return null;
+  const e = (await findOneDoc(EMPLOYEES, { id: p.employeeId })) ?? null;
+  return { ...p, employeeName: fullName(e), employeeNumber: e?.employeeNumber ?? null, workEmail: e?.workEmail ?? null };
 }
 
 export async function getEmployeePayslips(employeeId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  return db
-    .select()
-    .from(payslips)
-    .where(eq(payslips.employeeId, employeeId))
-    .orderBy(desc(payslips.year), desc(payslips.month));
+  return findMany(PAYSLIPS, { employeeId }, { year: -1, month: -1 });
 }
 
 export async function insertPayslip(data: InsertPayslip) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const result = await db.insert(payslips).values(data);
-  return { id: Number(result[0].insertId) };
+  return insertDoc(PAYSLIPS, "payslips", data as Record<string, unknown>);
 }
 
 export async function updatePayslip(id: number, data: Partial<InsertPayslip>) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.update(payslips).set(data as any).where(eq(payslips.id, id));
+  await updateDoc(PAYSLIPS, { id }, data as Record<string, unknown>);
 }
 
 // ─────────────────────────────────────────────
 // PAYROLL ANOMALY FLAGS
 // ─────────────────────────────────────────────
 export async function listAnomalyFlags(payrollRunId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  return db
-    .select({
-      id: payrollAnomalyFlags.id,
-      payrollRunId: payrollAnomalyFlags.payrollRunId,
-      employeeId: payrollAnomalyFlags.employeeId,
-      type: payrollAnomalyFlags.type,
-      severity: payrollAnomalyFlags.severity,
-      description: payrollAnomalyFlags.description,
-      previousValue: payrollAnomalyFlags.previousValue,
-      currentValue: payrollAnomalyFlags.currentValue,
-      percentChange: payrollAnomalyFlags.percentChange,
-      status: payrollAnomalyFlags.status,
-      reviewedBy: payrollAnomalyFlags.reviewedBy,
-      reviewedAt: payrollAnomalyFlags.reviewedAt,
-      createdAt: payrollAnomalyFlags.createdAt,
-      employeeName: sql<string>`CONCAT(${employees.firstName}, ' ', ${employees.lastName})`,
-    })
-    .from(payrollAnomalyFlags)
-    .innerJoin(employees, eq(payrollAnomalyFlags.employeeId, employees.id))
-    .where(eq(payrollAnomalyFlags.payrollRunId, payrollRunId))
-    .orderBy(payrollAnomalyFlags.severity, desc(payrollAnomalyFlags.createdAt));
+  const rows = await findMany(ANOMALIES, { payrollRunId }, { createdAt: -1 });
+  const empMap = await employeesByIds(rows.map((r: any) => r.employeeId));
+  return rows.map((f: any) => ({ ...f, employeeName: fullName(empMap.get(f.employeeId)) }));
 }
 
 export async function createAnomalyFlag(data: InsertPayrollAnomalyFlag) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const result = await db.insert(payrollAnomalyFlags).values(data);
-  return { id: Number(result[0].insertId) };
+  return insertDoc(ANOMALIES, "payrollAnomalyFlags", data as Record<string, unknown>);
 }
 
 export async function updateAnomalyFlag(id: number, data: Partial<InsertPayrollAnomalyFlag>) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.update(payrollAnomalyFlags).set(data as any).where(eq(payrollAnomalyFlags.id, id));
+  await updateDoc(ANOMALIES, { id }, data as Record<string, unknown>);
 }
 
 // ─────────────────────────────────────────────
 // PAYROLL RUN ENGINE
 // ─────────────────────────────────────────────
-
 interface PayslipComputeResult {
   employeeId: number;
   basicSalary: number;
@@ -614,29 +376,18 @@ interface PayslipComputeResult {
   components: Array<{ code: string; name: string; type: string; amount: number }>;
 }
 
-/**
- * Core payroll computation for a single employee.
- * Returns a computed payslip object (not yet persisted).
- */
 export async function computePayslipForEmployee(
   employeeId: number,
   month: number,
   year: number,
   companyId: number
 ): Promise<PayslipComputeResult | null> {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-
-  // 1. Get current salary assignment
   const assignment = await getEmployeeSalaryAssignment(employeeId);
   if (!assignment) return null;
 
   const basicSalary = parseFloat(assignment.basicSalary);
-
-  // 2. Get structure components
   const structureComps = await getStructureComponents(assignment.structureId);
 
-  // 3. Compute earnings and deductions from components
   const components: Array<{ code: string; name: string; type: string; amount: number }> = [];
   let totalEarnings = basicSalary;
   let totalDeductions = 0;
@@ -645,30 +396,24 @@ export async function computePayslipForEmployee(
     if (!comp.isActive) continue;
     const rawValue = comp.overrideValue ? parseFloat(comp.overrideValue) : parseFloat(comp.defaultValue);
     let amount = 0;
-
     if (comp.calculationType === "fixed") {
       amount = rawValue;
     } else if (comp.calculationType === "percentage_of_basic") {
       amount = (basicSalary * rawValue) / 100;
     } else if (comp.calculationType === "percentage_of_gross") {
-      // Approximate: use basic for now; gross is computed after earnings
       amount = (basicSalary * rawValue) / 100;
     }
-
     amount = Math.round(amount * 100) / 100;
-
     if (comp.componentType === "earning") {
       totalEarnings += amount;
     } else if (comp.componentType === "deduction") {
       totalDeductions += amount;
     }
-
     components.push({ code: comp.componentCode, name: comp.componentName, type: comp.componentType, amount });
   }
 
   const grossSalary = totalEarnings;
 
-  // 4. PF computation
   const pf = await getPfSettings(companyId);
   let pfEmployee = 0;
   let pfEmployer = 0;
@@ -679,22 +424,18 @@ export async function computePayslipForEmployee(
     totalDeductions += pfEmployee;
   }
 
-  // 5. Tax computation (annual gross → monthly tax)
   const slabs = await listTaxSlabs(companyId, year);
   const annualGross = grossSalary * 12;
-  const annualTax = computeTaxForAmount(slabs, annualGross);
+  const annualTax = computeTaxForAmount(slabs as any, annualGross);
   const taxAmount = Math.round((annualTax / 12) * 100) / 100;
   totalDeductions += taxAmount;
 
-  // 6. Loan deductions
   const loanDeductions = await getActiveLoanDeductionsForEmployee(employeeId);
   totalDeductions += loanDeductions;
 
-  // 7. Advance deductions
   const advanceDeductions = await getAdvanceDeductionsForMonth(employeeId, month, year);
   totalDeductions += advanceDeductions;
 
-  // 8. Attendance-linked deductions (late/absent) — placeholder (0 if no attendance data)
   const lateDeductions = 0;
   const absentDeductions = 0;
 
@@ -718,10 +459,6 @@ export async function computePayslipForEmployee(
   };
 }
 
-/**
- * Generate payslips for all employees in a payroll run.
- * Returns the count of payslips created and totals.
- */
 export async function generatePayslips(
   payrollRunId: number,
   companyId: number,
@@ -759,7 +496,7 @@ export async function generatePayslips(
       currency,
       components: result.components,
       status: "draft",
-    });
+    } as InsertPayslip);
 
     totalGross += result.grossSalary;
     totalDeductions += result.totalDeductions;
@@ -779,61 +516,64 @@ export async function generatePayslips(
 // REPORTS HELPERS
 // ─────────────────────────────────────────────
 export async function getPayrollSummaryReport(companyId: number, month: number, year: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  return db
-    .select({
-      id: payslips.id,
-      employeeId: payslips.employeeId,
-      employeeName: sql<string>`CONCAT(${employees.firstName}, ' ', ${employees.lastName})`,
-      employeeNumber: employees.employeeNumber,
-      basicSalary: payslips.basicSalary,
-      grossSalary: payslips.grossSalary,
-      totalDeductions: payslips.totalDeductions,
-      taxAmount: payslips.taxAmount,
-      pfEmployee: payslips.pfEmployee,
-      pfEmployer: payslips.pfEmployer,
-      loanDeductions: payslips.loanDeductions,
-      netSalary: payslips.netSalary,
-      currency: payslips.currency,
-      status: payslips.status,
+  const emps = await getEmployees(companyId);
+  const empMap = new Map(emps.map((e: any) => [e.id, e]));
+  const empIds = emps.map((e: any) => e.id);
+  const rows = await findMany(PAYSLIPS, { employeeId: { $in: empIds }, month, year });
+  return rows
+    .map((p: any) => {
+      const e: any = empMap.get(p.employeeId);
+      return {
+        id: p.id,
+        employeeId: p.employeeId,
+        employeeName: fullName(e),
+        employeeNumber: e?.employeeNumber ?? null,
+        basicSalary: p.basicSalary,
+        grossSalary: p.grossSalary,
+        totalDeductions: p.totalDeductions,
+        taxAmount: p.taxAmount,
+        pfEmployee: p.pfEmployee,
+        pfEmployer: p.pfEmployer,
+        loanDeductions: p.loanDeductions,
+        netSalary: p.netSalary,
+        currency: p.currency,
+        status: p.status,
+      };
     })
-    .from(payslips)
-    .innerJoin(employees, eq(payslips.employeeId, employees.id))
-    .where(and(eq(employees.companyId, companyId), eq(payslips.month, month), eq(payslips.year, year)))
-    .orderBy(employees.firstName);
+    .sort((a: any, b: any) => (a.employeeName || "").localeCompare(b.employeeName || ""));
 }
 
 export async function getPayrollCostByDept(companyId: number, month: number, year: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  return db
-    .select({
-      departmentId: employees.departmentId,
-      totalNet: sql<number>`SUM(CAST(${payslips.netSalary} AS DECIMAL(14,2)))`,
-      totalGross: sql<number>`SUM(CAST(${payslips.grossSalary} AS DECIMAL(14,2)))`,
-      headcount: sql<number>`COUNT(${payslips.id})`,
-    })
-    .from(payslips)
-    .innerJoin(employees, eq(payslips.employeeId, employees.id))
-    .where(and(eq(employees.companyId, companyId), eq(payslips.month, month), eq(payslips.year, year)))
-    .groupBy(employees.departmentId);
+  const emps = await getEmployees(companyId);
+  const empMap = new Map(emps.map((e: any) => [e.id, e]));
+  const empIds = emps.map((e: any) => e.id);
+  const rows = await findMany(PAYSLIPS, { employeeId: { $in: empIds }, month, year });
+  const byDept = new Map<number | null, { departmentId: number | null; totalNet: number; totalGross: number; headcount: number }>();
+  for (const p of rows) {
+    const deptId = (empMap.get(p.employeeId) as any)?.departmentId ?? null;
+    const agg = byDept.get(deptId) ?? { departmentId: deptId, totalNet: 0, totalGross: 0, headcount: 0 };
+    agg.totalNet += parseFloat(p.netSalary || "0");
+    agg.totalGross += parseFloat(p.grossSalary || "0");
+    agg.headcount += 1;
+    byDept.set(deptId, agg);
+  }
+  return Array.from(byDept.values());
 }
 
 export async function getYtdPayrollSummary(companyId: number, year: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  return db
-    .select({
-      month: payslips.month,
-      totalGross: sql<number>`SUM(CAST(${payslips.grossSalary} AS DECIMAL(14,2)))`,
-      totalNet: sql<number>`SUM(CAST(${payslips.netSalary} AS DECIMAL(14,2)))`,
-      totalTax: sql<number>`SUM(CAST(${payslips.taxAmount} AS DECIMAL(14,2)))`,
-      headcount: sql<number>`COUNT(DISTINCT ${payslips.employeeId})`,
-    })
-    .from(payslips)
-    .innerJoin(employees, eq(payslips.employeeId, employees.id))
-    .where(and(eq(employees.companyId, companyId), eq(payslips.year, year)))
-    .groupBy(payslips.month)
-    .orderBy(payslips.month);
+  const emps = await getEmployees(companyId);
+  const empIds = emps.map((e: any) => e.id);
+  const rows = await findMany(PAYSLIPS, { employeeId: { $in: empIds }, year });
+  const byMonth = new Map<number, { month: number; totalGross: number; totalNet: number; totalTax: number; employees: Set<number> }>();
+  for (const p of rows) {
+    const agg = byMonth.get(p.month) ?? { month: p.month, totalGross: 0, totalNet: 0, totalTax: 0, employees: new Set<number>() };
+    agg.totalGross += parseFloat(p.grossSalary || "0");
+    agg.totalNet += parseFloat(p.netSalary || "0");
+    agg.totalTax += parseFloat(p.taxAmount || "0");
+    agg.employees.add(p.employeeId);
+    byMonth.set(p.month, agg);
+  }
+  return Array.from(byMonth.values())
+    .map((m) => ({ month: m.month, totalGross: m.totalGross, totalNet: m.totalNet, totalTax: m.totalTax, headcount: m.employees.size }))
+    .sort((a, b) => a.month - b.month);
 }

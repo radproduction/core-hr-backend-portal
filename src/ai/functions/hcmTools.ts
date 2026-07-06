@@ -19,7 +19,7 @@ import {
   getWorkflowInstances,
   createNotification,
   getAuditLogs,
-} from "../../db";
+} from "../../mongoDb";
 import type { FunctionTool } from "../types";
 
 // ─── Tool: get_employee ───────────────────────────────────────────────────────

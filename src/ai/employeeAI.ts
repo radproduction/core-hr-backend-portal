@@ -5,7 +5,7 @@
  */
 import type { ExtractionSchema } from "./types";
 import { getAiService } from "./index";
-import { getEmployees, getDepartments, getDesignations, getLocations, getEmploymentHistory } from "../db";
+import { getEmployees, getDepartments, getDesignations, getLocations, getEmploymentHistory } from "../mongoDb";
 
 // ─── 1. RESUME / ID DOCUMENT PARSER ──────────────────────────────────────────
 

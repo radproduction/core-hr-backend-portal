@@ -825,7 +825,7 @@ const CompanyNewsModel = mongoose.models.CompanyNewsRecord || mongoose.model("Co
 const HrPolicyDocModel = mongoose.models.HrPolicyDocRecord || mongoose.model("HrPolicyDocRecord", hrPolicyDocSchema);
 const ExpenseClaimModel = mongoose.models.ExpenseClaimRecord || mongoose.model("ExpenseClaimRecord", expenseClaimSchema);
 
-async function ensureMongoReady() {
+export async function ensureMongoReady() {
   if (!hasMongo()) {
     throw new Error("MONGODB_URI is not configured");
   }
@@ -835,7 +835,7 @@ async function ensureMongoReady() {
   await mongoose.connect(ENV.mongoUrl);
 }
 
-async function nextId(key: string) {
+export async function nextId(key: string) {
   await ensureMongoReady();
   const counter = await Counter.findOneAndUpdate(
     { key },
@@ -845,7 +845,7 @@ async function nextId(key: string) {
   return counter.seq;
 }
 
-function toPlain<T>(value: T | null | undefined): T | null {
+export function toPlain<T>(value: T | null | undefined): T | null {
   if (!value) return null;
   return JSON.parse(JSON.stringify(value));
 }
