@@ -113,7 +113,8 @@ const userSchema = new Schema({
   id: { type: Number, unique: true, index: true, required: true },
   openId: { type: String, required: true, unique: true },
   name: String,
-  email: String,
+  email: { type: String, index: true },
+  passwordHash: String,
   loginMethod: String,
   role: { type: String, enum: enumFields.role, default: "user" },
   lastSignedIn: { type: Date, default: Date.now },
@@ -927,6 +928,95 @@ export async function upsertUser(user: InsertUser) {
 export async function getUserByOpenId(openId: string): Promise<any | null> {
   await ensureMongoReady();
   return toPlain(await UserModel.findOne({ openId }).lean());
+}
+
+export async function getUserById(id: number): Promise<any | null> {
+  await ensureMongoReady();
+  return toPlain(await UserModel.findOne({ id }).lean());
+}
+
+// ─── Native auth (email/password + OAuth providers) ─────────────────────────
+
+/** Case-insensitive lookup by email. Returns the raw doc (includes passwordHash). */
+export async function getUserByEmail(email: string): Promise<any | null> {
+  await ensureMongoReady();
+  const normalized = email.trim().toLowerCase();
+  return UserModel.findOne({ email: normalized }).lean();
+}
+
+/** Count users — used to make the very first registered user an admin. */
+export async function countUsers(): Promise<number> {
+  await ensureMongoReady();
+  return UserModel.countDocuments({});
+}
+
+/**
+ * Create an email/password user. openId is derived as `local:<email>`.
+ * Pass role explicitly, or the first-ever user + OWNER_OPEN_ID match becomes admin.
+ */
+export async function createLocalUser(input: {
+  name?: string | null;
+  email: string;
+  passwordHash: string;
+  role?: "user" | "admin";
+}): Promise<any> {
+  await ensureMongoReady();
+  const email = input.email.trim().toLowerCase();
+  const openId = `local:${email}`;
+  const isFirst = (await UserModel.countDocuments({})) === 0;
+  const role = input.role ?? (isFirst ? "admin" : "user");
+  const id = await nextId("users");
+  await UserModel.create({
+    id,
+    openId,
+    name: input.name ?? null,
+    email,
+    passwordHash: input.passwordHash,
+    loginMethod: "password",
+    role,
+    lastSignedIn: new Date(),
+  });
+  return toPlain(await UserModel.findOne({ openId }).lean());
+}
+
+/**
+ * Upsert a user authenticated via an external OAuth provider (e.g. Google).
+ * openId is `<provider>:<providerUserId>`.
+ */
+export async function upsertOAuthUser(input: {
+  provider: string;
+  providerUserId: string;
+  name?: string | null;
+  email?: string | null;
+}): Promise<any> {
+  await ensureMongoReady();
+  const openId = `${input.provider}:${input.providerUserId}`;
+  const email = input.email ? input.email.trim().toLowerCase() : null;
+  const existing = await UserModel.findOne({ openId }).lean();
+  const isFirst = (await UserModel.countDocuments({})) === 0;
+  const role = existing?.role ?? (isFirst || openId === ENV.ownerOpenId ? "admin" : "user");
+  if (existing) {
+    await UserModel.updateOne(
+      { openId },
+      { $set: { name: input.name ?? existing.name ?? null, email: email ?? existing.email ?? null, loginMethod: input.provider, lastSignedIn: new Date(), role } }
+    );
+  } else {
+    await UserModel.create({
+      id: await nextId("users"),
+      openId,
+      name: input.name ?? null,
+      email,
+      loginMethod: input.provider,
+      role,
+      lastSignedIn: new Date(),
+    });
+  }
+  return toPlain(await UserModel.findOne({ openId }).lean());
+}
+
+export async function touchUserSignIn(openId: string): Promise<void> {
+  await ensureMongoReady();
+  await UserModel.updateOne({ openId }, { $set: { lastSignedIn: new Date() } });
 }
 
 export async function getCompanies(): Promise<any[]> {
