@@ -1,0 +1,61 @@
+CREATE TABLE `companyNews` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`companyId` int NOT NULL,
+	`title` varchar(300) NOT NULL,
+	`summary` text,
+	`body` text,
+	`category` enum('announcement','policy','event','achievement','general') NOT NULL DEFAULT 'general',
+	`isPinned` boolean NOT NULL DEFAULT false,
+	`isActive` boolean NOT NULL DEFAULT true,
+	`targetAudience` enum('all','department','role') NOT NULL DEFAULT 'all',
+	`targetDepartmentId` int,
+	`imageUrl` text,
+	`authorId` int,
+	`publishedAt` timestamp NOT NULL DEFAULT (now()),
+	`expiresAt` timestamp,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `companyNews_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `expenseClaims` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`companyId` int NOT NULL,
+	`employeeId` int NOT NULL,
+	`title` varchar(255) NOT NULL,
+	`category` enum('travel','accommodation','meals','transport','office_supplies','training','client_entertainment','medical','other') NOT NULL DEFAULT 'other',
+	`amount` decimal(12,2) NOT NULL,
+	`currency` varchar(3) NOT NULL DEFAULT 'AED',
+	`expenseDate` timestamp NOT NULL,
+	`description` text,
+	`receiptUrl` text,
+	`receiptKey` varchar(500),
+	`status` enum('draft','submitted','approved','rejected','paid') NOT NULL DEFAULT 'draft',
+	`submittedAt` timestamp,
+	`approvedBy` int,
+	`approvedAt` timestamp,
+	`rejectedReason` text,
+	`paidAt` timestamp,
+	`payrollRunId` int,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `expenseClaims_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `hrPolicyDocs` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`companyId` int NOT NULL,
+	`title` varchar(300) NOT NULL,
+	`description` text,
+	`category` enum('leave','attendance','code_of_conduct','benefits','payroll','safety','general') NOT NULL DEFAULT 'general',
+	`fileKey` varchar(500),
+	`fileUrl` text,
+	`version` varchar(20) DEFAULT '1.0',
+	`isActive` boolean NOT NULL DEFAULT true,
+	`isMandatory` boolean NOT NULL DEFAULT false,
+	`uploadedBy` int,
+	`effectiveDate` timestamp,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `hrPolicyDocs_id` PRIMARY KEY(`id`)
+);

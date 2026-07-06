@@ -1,0 +1,76 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1780414244815,
+      "tag": "0000_certain_magik",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1780423199058,
+      "tag": "0001_demonic_scarecrow",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1780425530273,
+      "tag": "0002_shallow_hellfire_club",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1780427275960,
+      "tag": "0003_swift_prowler",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1780429418381,
+      "tag": "0004_small_zombie",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1780429491548,
+      "tag": "0005_black_the_watchers",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1780431229189,
+      "tag": "0006_faithful_jane_foster",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1780433238478,
+      "tag": "0007_abandoned_freak",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1780436007604,
+      "tag": "0008_open_satana",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1780496768467,
+      "tag": "0009_confused_rictor",
+      "breakpoints": true
+    }
+  ]
+}
