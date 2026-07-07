@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { permissionProcedure, protectedProcedure, router } from "../_core/trpc";
 import {
   createAuditLog,
   createBulkUploadJob,
@@ -85,12 +85,19 @@ export const employeesRouter = router({
       employmentType: z.string().optional(),
       search: z.string().optional(),
     }))
-    .query(async ({ input }) => {
-      const rows = await getEmployees(input.companyId, {
+    .query(async ({ input, ctx }) => {
+      let rows = await getEmployees(input.companyId, {
         departmentId: input.departmentId,
         locationId: input.locationId,
         status: input.status,
       });
+      // Data scope: employees see only their own record; department managers
+      // see only their own department; everyone else sees the whole company.
+      if (ctx.hcmRoleSlug === "employee") {
+        rows = rows.filter(e => e.id === ctx.employeeId);
+      } else if (ctx.hcmRoleSlug === "department_manager") {
+        rows = rows.filter(e => e.departmentId === ctx.departmentId);
+      }
       if (input.search) {
         const q = input.search.toLowerCase();
         return rows.filter(e =>
@@ -107,12 +114,17 @@ export const employeesRouter = router({
 
   getById: protectedProcedure
     .input(z.object({ id: z.number(), companyId: z.number() }))
-    .query(async ({ input }) => {
-      return getEmployeeById(input.id, input.companyId);
+    .query(async ({ input, ctx }) => {
+      const emp = await getEmployeeById(input.id, input.companyId);
+      if (!emp) return undefined;
+      // Enforce the same data scope on single-record reads.
+      if (ctx.hcmRoleSlug === "employee" && emp.id !== ctx.employeeId) return undefined;
+      if (ctx.hcmRoleSlug === "department_manager" && emp.departmentId !== ctx.departmentId) return undefined;
+      return emp;
     }),
 
   // ─── Create ─────────────────────────────────────────────────────────────────
-  create: protectedProcedure
+  create: permissionProcedure("employees", "create")
     .input(employeeCreateSchema)
     .mutation(async ({ input, ctx }) => {
       const result = await createEmployee({
@@ -157,7 +169,7 @@ export const employeesRouter = router({
     }),
 
   // ─── Update ─────────────────────────────────────────────────────────────────
-  update: protectedProcedure
+  update: permissionProcedure("employees", "edit")
     .input(z.object({
       id: z.number(),
       companyId: z.number(),
@@ -182,7 +194,7 @@ export const employeesRouter = router({
     }),
 
   // ─── Status Change ───────────────────────────────────────────────────────────
-  changeStatus: protectedProcedure
+  changeStatus: permissionProcedure("employees", "delete")
     .input(z.object({
       id: z.number(),
       companyId: z.number(),

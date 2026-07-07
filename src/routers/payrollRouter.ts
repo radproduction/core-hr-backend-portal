@@ -7,7 +7,7 @@
  */
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { permissionProcedure, protectedProcedure, router } from "../_core/trpc";
 import {
   addComponentToStructure,
   assignSalaryStructure,
@@ -455,7 +455,7 @@ const runsRouter = router({
       return { runId, ...totals, anomalyCount: anomalies.length };
     }),
 
-  approve: protectedProcedure
+  approve: permissionProcedure("payroll", "approve")
     .input(z.object({ id: z.number(), approvedBy: z.number() }))
     .mutation(async ({ input }) => {
       await updatePayrollRunStatus(input.id, {
@@ -466,7 +466,7 @@ const runsRouter = router({
       return { success: true };
     }),
 
-  lock: protectedProcedure
+  lock: permissionProcedure("payroll", "approve")
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await updatePayrollRunStatus(input.id, {
@@ -476,7 +476,7 @@ const runsRouter = router({
       return { success: true };
     }),
 
-  disburse: protectedProcedure
+  disburse: permissionProcedure("payroll", "approve")
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await updatePayrollRunStatus(input.id, { status: "disbursed" });
@@ -502,7 +502,7 @@ const payslipsRouter = router({
     .input(z.object({ employeeId: z.number() }))
     .query(({ input }) => getEmployeePayslips(input.employeeId)),
 
-  updateStatus: protectedProcedure
+  updateStatus: permissionProcedure("payroll", "approve")
     .input(z.object({ id: z.number(), status: z.enum(["draft", "approved", "disbursed"]) }))
     .mutation(({ input }) => updatePayslip(input.id, { status: input.status })),
 });

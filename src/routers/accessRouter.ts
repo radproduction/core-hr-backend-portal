@@ -33,7 +33,7 @@ import {
   upsertUserPermissionOverride,
   writeAccessAuditLog,
 } from "../mongoDb";
-import { protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 
 const COMPANY_ID = 1; // TODO: derive from ctx when multi-tenant is wired
 
@@ -46,17 +46,17 @@ async function assertAdminAccess(ctx: { user: { id: number } | null }) {
 
 // ─── Users sub-router ─────────────────────────────────────────────────────────
 const usersRouter = router({
-  list: protectedProcedure.query(async () => {
+  list: adminProcedure.query(async () => {
     return listUserProfiles(COMPANY_ID);
   }),
 
-  get: protectedProcedure
+  get: adminProcedure
     .input(z.object({ userId: z.number() }))
     .query(async ({ input }) => {
       return getUserProfile(input.userId, COMPANY_ID);
     }),
 
-  create: protectedProcedure
+  create: adminProcedure
     .input(
       z.object({
         userId: z.number(),
@@ -89,7 +89,7 @@ const usersRouter = router({
       return { success: true };
     }),
 
-  update: protectedProcedure
+  update: adminProcedure
     .input(
       z.object({
         userId: z.number(),
@@ -122,7 +122,7 @@ const usersRouter = router({
       return { success: true };
     }),
 
-  deactivate: protectedProcedure
+  deactivate: adminProcedure
     .input(z.object({ userId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       await assertAdminAccess(ctx);
@@ -137,13 +137,13 @@ const usersRouter = router({
       return { success: true };
     }),
 
-  getRoles: protectedProcedure
+  getRoles: adminProcedure
     .input(z.object({ userId: z.number() }))
     .query(async ({ input }) => {
       return getUserRoles(input.userId, COMPANY_ID);
     }),
 
-  setRoles: protectedProcedure
+  setRoles: adminProcedure
     .input(z.object({ userId: z.number(), roleIds: z.array(z.number()) }))
     .mutation(async ({ input, ctx }) => {
       await assertAdminAccess(ctx);
@@ -161,18 +161,19 @@ const usersRouter = router({
       return { success: true };
     }),
 
-  getEffectivePermissions: protectedProcedure
+  getEffectivePermissions: adminProcedure
     .input(z.object({ userId: z.number() }))
     .query(async ({ input }) => {
       return getEffectivePermissions(input.userId, COMPANY_ID);
     }),
 
+  // Any signed-in user may read their own effective permissions.
   myPermissions: protectedProcedure.query(async ({ ctx }) => {
     return getEffectivePermissions(ctx.user!.id, COMPANY_ID);
   }),
 
   // Password invite — in dev mode returns a mock link; in prod would send email
-  sendInvite: protectedProcedure
+  sendInvite: adminProcedure
     .input(z.object({ userId: z.number(), email: z.string().email() }))
     .mutation(async ({ input, ctx }) => {
       await assertAdminAccess(ctx);
@@ -197,25 +198,25 @@ const usersRouter = router({
 
 // ─── Roles sub-router ─────────────────────────────────────────────────────────
 const rolesRouter = router({
-  list: protectedProcedure.query(async () => {
+  list: adminProcedure.query(async () => {
     return listHcmRoles(COMPANY_ID);
   }),
 
-  get: protectedProcedure
+  get: adminProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return getHcmRole(input.id);
     }),
 
-  listPredefined: protectedProcedure.query(() => {
+  listPredefined: adminProcedure.query(() => {
     return PREDEFINED_ROLES;
   }),
 
-  listModules: protectedProcedure.query(() => {
+  listModules: adminProcedure.query(() => {
     return HCM_MODULES;
   }),
 
-  create: protectedProcedure
+  create: adminProcedure
     .input(
       z.object({
         name: z.string().min(1).max(100),
@@ -245,7 +246,7 @@ const rolesRouter = router({
       return { success: true, id: result.id };
     }),
 
-  update: protectedProcedure
+  update: adminProcedure
     .input(
       z.object({
         id: z.number(),
@@ -277,7 +278,7 @@ const rolesRouter = router({
       return { success: true };
     }),
 
-  clone: protectedProcedure
+  clone: adminProcedure
     .input(
       z.object({
         sourceRoleId: z.number(),
@@ -300,7 +301,7 @@ const rolesRouter = router({
       return { success: true, id: result.id };
     }),
 
-  delete: protectedProcedure
+  delete: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       await assertAdminAccess(ctx);
@@ -325,13 +326,13 @@ const rolesRouter = router({
 
 // ─── Permissions sub-router ───────────────────────────────────────────────────
 const permissionsRouter = router({
-  getMatrix: protectedProcedure
+  getMatrix: adminProcedure
     .input(z.object({ hcmRoleId: z.number() }))
     .query(async ({ input }) => {
       return getRolePermissionMatrix(input.hcmRoleId, COMPANY_ID);
     }),
 
-  setPermission: protectedProcedure
+  setPermission: adminProcedure
     .input(
       z.object({
         hcmRoleId: z.number(),
@@ -361,7 +362,7 @@ const permissionsRouter = router({
       return { success: true };
     }),
 
-  setBulkPermissions: protectedProcedure
+  setBulkPermissions: adminProcedure
     .input(
       z.object({
         hcmRoleId: z.number(),
@@ -397,13 +398,13 @@ const permissionsRouter = router({
 
 // ─── Overrides sub-router ─────────────────────────────────────────────────────
 const overridesRouter = router({
-  list: protectedProcedure
+  list: adminProcedure
     .input(z.object({ userId: z.number() }))
     .query(async ({ input }) => {
       return getUserPermissionOverrides(input.userId, COMPANY_ID);
     }),
 
-  upsert: protectedProcedure
+  upsert: adminProcedure
     .input(
       z.object({
         userId: z.number(),
@@ -438,7 +439,7 @@ const overridesRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: adminProcedure
     .input(z.object({ id: z.number(), userId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       await assertAdminAccess(ctx);
@@ -456,19 +457,19 @@ const overridesRouter = router({
 
 // ─── Data Scope sub-router ────────────────────────────────────────────────────
 const dataScopeRouter = router({
-  get: protectedProcedure
+  get: adminProcedure
     .input(z.object({ userId: z.number(), hcmRoleId: z.number() }))
     .query(async ({ input }) => {
       return getUserAccessProfile(input.userId, COMPANY_ID, input.hcmRoleId);
     }),
 
-  getUserScope: protectedProcedure
+  getUserScope: adminProcedure
     .input(z.object({ userId: z.number() }))
     .query(async ({ input }) => {
       return getUserDataScope(input.userId, COMPANY_ID);
     }),
 
-  set: protectedProcedure
+  set: adminProcedure
     .input(
       z.object({
         userId: z.number(),

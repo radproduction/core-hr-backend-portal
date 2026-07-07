@@ -32,23 +32,10 @@ export const appRouter = router({
      * when no explicit HCM role assignment exists.
      */
     me: publicProcedure.query(async (opts) => {
-      const user = opts.ctx.user;
+      const { user, hcmRoleSlug, hcmRoleId, employeeId, departmentId, companyId } = opts.ctx;
       if (!user) return null;
-      // Enrich with the primary active HCM role slug
-      try {
-        const roles = await getUserRoles(user.id, 1);
-        const primaryRole = roles.find((role: any) => role.isActive);
-        return {
-          ...user,
-          hcmRoleSlug: primaryRole?.roleSlug ?? (user.role === "admin" ? "super_admin" : "employee"),
-        };
-      } catch {
-        // DB unavailable — fall back gracefully
-        return {
-          ...user,
-          hcmRoleSlug: user.role === "admin" ? "super_admin" : "employee",
-        };
-      }
+      // Role + scope are resolved centrally in createContext.
+      return { ...user, hcmRoleSlug, hcmRoleId, employeeId, departmentId, companyId };
     }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);

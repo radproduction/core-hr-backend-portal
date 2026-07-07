@@ -935,6 +935,12 @@ export async function getUserById(id: number): Promise<any | null> {
   return toPlain(await UserModel.findOne({ id }).lean());
 }
 
+/** Find the employee record linked to a user account (for self/team data scope). */
+export async function getEmployeeByUserId(userId: number, companyId: number): Promise<any | null> {
+  await ensureMongoReady();
+  return toPlain(await EmployeeModel.findOne({ userId, companyId }).lean());
+}
+
 // ─── Native auth (email/password + OAuth providers) ─────────────────────────
 
 /** Case-insensitive lookup by email. Returns the raw doc (includes passwordHash). */
